@@ -1,33 +1,25 @@
-"""
-Модуль базы данных для MAX-бота.
-Хранит пользователей, дисциплины и задания с дедлайнами.
-Использует SQLite (встроен в Python).
-"""
-
 import sqlite3
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
-logging.basicConfig(level=logging.INFO)
+from config import settings
+
 logger = logging.getLogger(__name__)
 
-DB_NAME = 'max_bot.db'
+DB_NAME = settings.DB_PATH
 
 
 def get_connection() -> sqlite3.Connection:
-    """Подключение к БД. Возвращает строки как словари."""
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db() -> None:
-    """Создаёт таблицы, если их нет. Вызвать один раз при запуске."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Таблица пользователей
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +31,6 @@ def init_db() -> None:
         )
     ''')
 
-    # Таблица дисциплин
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS disciplines (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +41,6 @@ def init_db() -> None:
         )
     ''')
 
-    # Таблица заданий
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS assignments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,25 +55,23 @@ def init_db() -> None:
         )
     ''')
 
-    # Индексы для ускорения
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_assignments_deadline ON assignments(deadline)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_assignments_status ON assignments(status)')
 
     conn.commit()
     conn.close()
-    logger.info("База данных и таблицы созданы.")
+    logger.info("База данных инициализирована.")
 
 
 # ПОЛЬЗОВАТЕЛИ
 
 def add_user(user_id: str, login: str = '', password: str = '') -> int:
-    """Добавляет пользователя. Возвращает его ID или -1 при ошибке."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
             "INSERT OR IGNORE INTO users (user_id, login, password) VALUES (?, ?, ?)",
-            (user_id, login, password)
+            (user_id, login, password),
         )
         conn.commit()
         cursor.execute("SELECT id FROM users WHERE user_id = ?", (user_id,))
@@ -97,7 +85,6 @@ def add_user(user_id: str, login: str = '', password: str = '') -> int:
 
 
 def get_user(user_id: str) -> Optional[Dict[str, Any]]:
-    """Получает данные пользователя. Возвращает словарь или None."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -111,14 +98,30 @@ def get_user(user_id: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
+def update_user_credentials(user_id: str, login: str, password: str) -> bool:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE users SET login = ?, password = ? WHERE user_id = ?",
+            (login, password, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении учётных данных: {e}")
+        return False
+    finally:
+        conn.close()
+
+
 def update_user_password(user_id: str, new_password: str) -> bool:
-    """Обновляет пароль пользователя. Возвращает True/False."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
             "UPDATE users SET password = ? WHERE user_id = ?",
-            (new_password, user_id)
+            (new_password, user_id),
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -130,13 +133,12 @@ def update_user_password(user_id: str, new_password: str) -> bool:
 
 
 def delete_user(user_id: str) -> bool:
-    """Мягкое удаление (is_active = 0). Возвращает True/False."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
             "UPDATE users SET is_active = 0 WHERE user_id = ?",
-            (user_id,)
+            (user_id,),
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -150,13 +152,12 @@ def delete_user(user_id: str) -> bool:
 # ДИСЦИПЛИНЫ
 
 def add_discipline(user_id: int, name: str, teacher: str = None) -> int:
-    """Добавляет дисциплину. Возвращает её ID или -1 при ошибке."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
             "INSERT INTO disciplines (user_id, name, teacher) VALUES (?, ?, ?)",
-            (user_id, name, teacher)
+            (user_id, name, teacher),
         )
         conn.commit()
         return cursor.lastrowid
@@ -168,13 +169,11 @@ def add_discipline(user_id: int, name: str, teacher: str = None) -> int:
 
 
 def get_disciplines(user_id: int) -> List[Dict[str, Any]]:
-    """Получает все дисциплины пользователя. Возвращает список словарей."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT * FROM disciplines WHERE user_id = ?", (user_id,))
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [dict(row) for row in cursor.fetchall()]
     except Exception as e:
         logger.error(f"Ошибка при получении дисциплин: {e}")
         return []
@@ -183,13 +182,12 @@ def get_disciplines(user_id: int) -> List[Dict[str, Any]]:
 
 
 def get_discipline_by_name(user_id: int, name: str) -> Optional[Dict[str, Any]]:
-    """Ищет дисциплину по названию. Возвращает словарь или None."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
             "SELECT * FROM disciplines WHERE user_id = ? AND name = ?",
-            (user_id, name)
+            (user_id, name),
         )
         row = cursor.fetchone()
         return dict(row) if row else None
@@ -203,16 +201,12 @@ def get_discipline_by_name(user_id: int, name: str) -> Optional[Dict[str, Any]]:
 # ЗАДАНИЯ
 
 def add_assignment(discipline_id: int, title: str, deadline: str, source_id: str = None) -> int:
-    """Добавляет задание. Возвращает его ID или -1 при ошибке."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
-            """
-            INSERT INTO assignments (discipline_id, title, deadline, source_id)
-            VALUES (?, ?, ?, ?)
-            """,
-            (discipline_id, title, deadline, source_id)
+            "INSERT INTO assignments (discipline_id, title, deadline, source_id) VALUES (?, ?, ?, ?)",
+            (discipline_id, title, deadline, source_id),
         )
         conn.commit()
         return cursor.lastrowid
@@ -224,24 +218,18 @@ def add_assignment(discipline_id: int, title: str, deadline: str, source_id: str
 
 
 def get_assignments(user_id: int) -> List[Dict[str, Any]]:
-    """
-    Получает все задания пользователя с названиями дисциплин.
-    Сортировка по дедлайну. Возвращает список словарей.
-    """
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            SELECT 
-                a.id, a.title, a.deadline, a.status, a.notified_1day,
-                d.name as discipline_name
+            SELECT a.id, a.title, a.deadline, a.status, a.notified_1day,
+                   d.name as discipline_name
             FROM assignments a
             JOIN disciplines d ON a.discipline_id = d.id
             WHERE d.user_id = ?
             ORDER BY a.deadline ASC
         ''', (user_id,))
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [dict(row) for row in cursor.fetchall()]
     except Exception as e:
         logger.error(f"Ошибка при получении заданий: {e}")
         return []
@@ -250,25 +238,21 @@ def get_assignments(user_id: int) -> List[Dict[str, Any]]:
 
 
 def get_assignments_soon(user_id: int, days: int = 3) -> List[Dict[str, Any]]:
-    """Получает задания с дедлайном в ближайшие N дней."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         future = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('''
-            SELECT 
-                a.id, a.title, a.deadline,
-                d.name as discipline_name
+            SELECT a.id, a.title, a.deadline, d.name as discipline_name
             FROM assignments a
             JOIN disciplines d ON a.discipline_id = d.id
-            WHERE d.user_id = ? 
+            WHERE d.user_id = ?
               AND a.deadline BETWEEN ? AND ?
               AND a.status = 'active'
             ORDER BY a.deadline ASC
         ''', (user_id, now, future))
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [dict(row) for row in cursor.fetchall()]
     except Exception as e:
         logger.error(f"Ошибка при получении ближайших заданий: {e}")
         return []
@@ -277,7 +261,6 @@ def get_assignments_soon(user_id: int, days: int = 3) -> List[Dict[str, Any]]:
 
 
 def get_assignment_by_id(assignment_id: int) -> Optional[Dict[str, Any]]:
-    """Получает задание по ID. Возвращает словарь или None."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -294,13 +277,12 @@ def get_assignment_by_id(assignment_id: int) -> Optional[Dict[str, Any]]:
 # УВЕДОМЛЕНИЯ
 
 def mark_notification_sent(assignment_id: int) -> bool:
-    """Отмечает, что уведомление отправлено. Возвращает True/False."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
             "UPDATE assignments SET notified_1day = 1 WHERE id = ?",
-            (assignment_id,)
+            (assignment_id,),
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -312,22 +294,17 @@ def mark_notification_sent(assignment_id: int) -> bool:
 
 
 def get_users_for_notification(days: int = 1) -> List[Dict[str, Any]]:
-    """
-    Получает пользователей для уведомлений.
-    Условия: дедлайн через days дней, уведомление не отправлено, задание активно, пользователь активен.
-    """
     conn = get_connection()
     cursor = conn.cursor()
     try:
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         target = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('''
-            SELECT 
-                u.user_id as telegram_id,
-                a.id as assignment_id,
-                a.title,
-                a.deadline,
-                d.name as discipline_name
+            SELECT u.user_id as telegram_id,
+                   a.id as assignment_id,
+                   a.title,
+                   a.deadline,
+                   d.name as discipline_name
             FROM assignments a
             JOIN disciplines d ON a.discipline_id = d.id
             JOIN users u ON d.user_id = u.id
@@ -336,8 +313,7 @@ def get_users_for_notification(days: int = 1) -> List[Dict[str, Any]]:
               AND a.notified_1day = 0
               AND u.is_active = 1
         ''', (now, target))
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [dict(row) for row in cursor.fetchall()]
     except Exception as e:
         logger.error(f"Ошибка при получении пользователей для уведомлений: {e}")
         return []
@@ -348,15 +324,6 @@ def get_users_for_notification(days: int = 1) -> List[Dict[str, Any]]:
 # СИНХРОНИЗАЦИЯ
 
 def sync_assignments(user_id: int, disciplines_data: list) -> dict:
-    """
-    Синхронизирует данные из личного кабинета с БД.
-    disciplines_data = [
-        {"name": "Математика", "teacher": "Иванов", "assignments": [
-            {"title": "ДЗ 1", "deadline": "2026-07-20 23:59:00", "source_id": "123"}
-        ]}
-    ]
-    Возвращает {"added": n, "updated": n}
-    """
     stats = {"added": 0, "updated": 0}
     conn = get_connection()
     cursor = conn.cursor()
@@ -364,7 +331,7 @@ def sync_assignments(user_id: int, disciplines_data: list) -> dict:
         for disc_data in disciplines_data:
             cursor.execute(
                 "SELECT id FROM disciplines WHERE user_id = ? AND name = ?",
-                (user_id, disc_data["name"])
+                (user_id, disc_data["name"]),
             )
             row = cursor.fetchone()
             if row:
@@ -372,31 +339,31 @@ def sync_assignments(user_id: int, disciplines_data: list) -> dict:
             else:
                 cursor.execute(
                     "INSERT INTO disciplines (user_id, name, teacher) VALUES (?, ?, ?)",
-                    (user_id, disc_data["name"], disc_data.get("teacher"))
+                    (user_id, disc_data["name"], disc_data.get("teacher")),
                 )
                 discipline_id = cursor.lastrowid
+
             for assignment in disc_data.get("assignments", []):
                 cursor.execute(
-                    """SELECT id FROM assignments 
-                       WHERE discipline_id = ? AND source_id = ?""",
-                    (discipline_id, assignment.get("source_id"))
+                    "SELECT id FROM assignments WHERE discipline_id = ? AND source_id = ?",
+                    (discipline_id, assignment.get("source_id")),
                 )
                 existing = cursor.fetchone()
                 if existing:
                     cursor.execute(
-                        """UPDATE assignments 
+                        """UPDATE assignments
                            SET title = ?, deadline = ?, last_updated = CURRENT_TIMESTAMP
                            WHERE id = ?""",
-                        (assignment["title"], assignment["deadline"], existing["id"])
+                        (assignment["title"], assignment["deadline"], existing["id"]),
                     )
                     stats["updated"] += 1
                 else:
                     cursor.execute(
-                        """INSERT INTO assignments (discipline_id, title, deadline, source_id)
-                           VALUES (?, ?, ?, ?)""",
-                        (discipline_id, assignment["title"], assignment["deadline"], assignment.get("source_id"))
+                        "INSERT INTO assignments (discipline_id, title, deadline, source_id) VALUES (?, ?, ?, ?)",
+                        (discipline_id, assignment["title"], assignment["deadline"], assignment.get("source_id")),
                     )
                     stats["added"] += 1
+
         conn.commit()
     except Exception as e:
         logger.error(f"Ошибка при синхронизации: {e}")
@@ -404,30 +371,5 @@ def sync_assignments(user_id: int, disciplines_data: list) -> dict:
         return {"added": 0, "updated": 0}
     finally:
         conn.close()
+
     return stats
-
-
-if __name__ == '__main__':
-    print("Запуск тестирования модуля базы данных...")
-    init_db()
-    user_id = add_user("test_user_123", "test_login", "test_pass")
-    print(f"Пользователь добавлен с ID: {user_id}")
-    disc_id = add_discipline(user_id, "Математика", "Иванов И.И.")
-    print(f"Дисциплина добавлена с ID: {disc_id}")
-    ass_id = add_assignment(disc_id, "Домашняя работа 1", "2026-07-20 23:59:00")
-    print(f"Задание добавлено с ID: {ass_id}")
-    assignments = get_assignments(user_id)
-    print("Список заданий:")
-    for a in assignments:
-        print(f"  - {a['discipline_name']}: {a['title']} (дедлайн: {a['deadline']})")
-    soon = get_assignments_soon(user_id, 3)
-    print("Ближайшие задания (3 дня):")
-    for a in soon:
-        print(f"  - {a['discipline_name']}: {a['title']} (дедлайн: {a['deadline']})")
-    notifications = get_users_for_notification(1)
-    print(f"Пользователей для уведомлений: {len(notifications)}")
-    for n in notifications:
-        print(f"  - {n['telegram_id']}: {n['discipline_name']} - {n['title']} ({n['deadline']})")
-    result = mark_notification_sent(ass_id)
-    print(f"Уведомление отмечено: {result}")
-    print("Тестирование завершено!")

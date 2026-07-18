@@ -1,29 +1,29 @@
 # получение заданий
 
-import requests
 from bs4 import BeautifulSoup
 
+
 def get_tasks(session):
-    response=session.get("https://pro.guap.ru/inside/student/tasks/?perPage=100")
+    response = session.get("https://pro.guap.ru/inside/student/tasks/?perPage=100")
 
     html = response.text
 
-    soup=BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, "html.parser")
 
-    table=soup.find("table")
+    table = soup.find("table")
 
     if table is None:
         raise Exception("Таблица не найдена!")
 
-    rows=table.find_all("tr")
+    rows = table.find_all("tr")
 
-    tasks=[]
+    tasks = []
 
     for row in rows:
-        cells=row.find_all("td")
+        cells = row.find_all("td")
         if not cells:
             continue
-        if len(cells)<10:
+        if len(cells) < 10:
             continue
 
         task_info = {
@@ -35,7 +35,7 @@ def get_tasks(session):
             "type": cells[6].get_text(strip=True),
             "deadline": cells[7].get_text(strip=True),
             "updated": cells[8].get_text(strip=True),
-            "teacher": cells[9].get_text(strip=True)
+            "teacher": cells[9].get_text(strip=True),
         }
         tasks.append(task_info)
 
